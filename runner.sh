@@ -17,8 +17,24 @@ python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds
 # fedAvg with backdoor attack, and robust learning rate is used 
 python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200 --num_corrupt=1 --poison_frac=0.5 --robustLR_threshold=4 --device=cuda:1
 
+python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200
+python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200  --aggr=quantize_avg
+python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200  --aggr=poison_scale
+python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200  --aggr=poison_minmax
+python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200  --aggr=poison_minmax --defence=coord_median --device=cuda:1
+python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200  --aggr=poison_minmax --defence=Geo_median --device=cuda:2
+python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200  --aggr=poison_scale_Def_Med --device=cuda:1
+python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200  --aggr=poison_scale_Def_GeoMed --device=cuda:1
+python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200  --aggr=poison_additive_noise --device=cuda:3
+python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200  --aggr=poison_additive_noise_Def_Med --device=cuda:3
+python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200  --aggr=poison_additive_noise_Def_GeoMed --device=cuda:3
 
+python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200 --num_corrupt=1 --poison_frac=0.5
+python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200 --num_corrupt=1 --poison_frac=0.5 --robustLR_threshold=4 --device=cuda:1
+python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200 --num_corrupt=3 --poison_frac=0.5
+python federated.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=200 --num_corrupt=3 --poison_frac=0.5 --robustLR_threshold=4 --device=cuda:1
 
+python federated_coded.py --data=fmnist --local_ep=2 --bs=256 --num_agents=10 --rounds=20
 
 python federated.py --data=cifar10 --local_ep=2 --bs=256 --num_agents=40 --rounds=200 &
 

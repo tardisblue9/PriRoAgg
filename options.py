@@ -21,6 +21,9 @@ def args_parser():
     
     parser.add_argument('--aggr', type=str, default='avg', 
                         help="aggregation function to aggregate agents' local weights")
+
+    parser.add_argument('--defence', type=str, default=None,
+                        help="defence against a poisoning aggregation function")
     
     parser.add_argument('--local_ep', type=int, default=2,
                         help="number of local epochs:E")

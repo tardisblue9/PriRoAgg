@@ -2,6 +2,7 @@ import torch
 import models
 from torch.nn.utils import vector_to_parameters, parameters_to_vector
 import numpy as np
+import random
 from copy import deepcopy
 from torch.nn import functional as F
 
@@ -28,27 +29,58 @@ class Aggregation():
         aggregated_updates = 0
         if self.args.aggr=='avg':          
             aggregated_updates = self.agg_avg(agent_updates_dict)
+        elif self.args.aggr=='quantize_avg':
+            aggregated_updates = self.quantize_avg(agent_updates_dict)
         elif self.args.aggr=='comed':
             aggregated_updates = self.agg_comed(agent_updates_dict)
         elif self.args.aggr == 'sign':
             aggregated_updates = self.agg_sign(agent_updates_dict)
         elif self.args.aggr == 'geomed':
-            aggregated_updates = self.agg_geomed(agent_updates_dict)
+            concat_col_vectors = self.dummy(agent_updates_dict)
+            aggregated_updates = self.geomed(concat_col_vectors)
         elif self.args.aggr == 'poison_sign_flip':
             print("====== For model poisoning - sign flip attack is launched! =====")
-            aggregated_updates = self.poison_agg_sign_flip(agent_updates_dict, 4)
-        elif self.args.aggr == 'poison_sign_flip_Def_Med':
-            print("====== For model poisoning - sign flip attack is launched! ===== \n ====== defended by median =====")
-            aggregated_updates = self.poison_agg_sign_flip_Def_Med(agent_updates_dict, 4)
-        elif self.args.aggr == 'poison_sign_flip_Def_GeoMed':
-            print("====== For model poisoning - sign flip attack is launched! ===== \n ====== defended by geometric median =====")
-            aggregated_updates = self.poison_agg_sign_flip_Def_GeoMed(agent_updates_dict, 4)
+            concat_col_vectors = self.poison_sign_flip(agent_updates_dict, 3)
+            if self.args.defence == None:
+                aggregated_updates = torch.mean(concat_col_vectors, dim=1)
+            elif self.args.defence == 'coord_median':
+                aggregated_updates = torch.median(concat_col_vectors, dim=1).values
+            elif self.args.defence == 'Geo_median':
+                aggregated_updates = self.geomed(concat_col_vectors)
         elif self.args.aggr == 'poison_additive_noise':
             print("====== For model poisoning - additive_noise attack is launched! =====")
-            aggregated_updates = self.poison_agg_additive_noise(agent_updates_dict, 4)
-        elif self.args.aggr == 'poison_additive_noise_Def_Med':
-            print("====== For model poisoning - additive_noise attack is launched! ===== \n ====== defended by median =====")
-            aggregated_updates = self.poison_agg_additive_noise_Def_Med(agent_updates_dict, 4)
+            concat_col_vectors = self.poison_additive_noise(agent_updates_dict, 1)
+            if self.args.defence == None:
+                aggregated_updates = torch.mean(concat_col_vectors, dim=1)
+            elif self.args.defence == 'coord_median':
+                print("=== Protected by Coordinate median ===")
+                aggregated_updates = torch.median(concat_col_vectors, dim=1).values
+            elif self.args.defence == 'Geo_median':
+                print("=== Protected by Geometric median ===")
+                aggregated_updates = self.geomed(concat_col_vectors)
+        elif self.args.aggr == 'poison_scale':
+            print("====== For model poisoning - scaling attack is launched! =====")
+            concat_col_vectors = self.poison_scale(agent_updates_dict, 1)
+            if self.args.defence == None:
+                aggregated_updates = torch.mean(concat_col_vectors, dim=1)
+            elif self.args.defence == 'coord_median':
+                print("=== Protected by Coordinate median ===")
+                aggregated_updates = torch.median(concat_col_vectors, dim=1).values
+            elif self.args.defence == 'Geo_median':
+                print("=== Protected by Geometric median ===")
+                aggregated_updates = self.geomed(concat_col_vectors)
+        elif self.args.aggr == 'poison_minmax':
+            print("====== For model poisoning - min-max attack is launched! =====")
+            concat_col_vectors = self.poison_minmax(agent_updates_dict, 3)
+            if self.args.defence == None:
+                aggregated_updates = torch.mean(concat_col_vectors, dim=1)
+            elif self.args.defence == 'coord_median':
+                print("=== Protected by Coordinate median ===")
+                aggregated_updates = torch.median(concat_col_vectors, dim=1).values
+            elif self.args.defence == 'Geo_median':
+                print("=== Protected by Geometric median ===")
+                aggregated_updates = self.geomed(concat_col_vectors)
+
             
         if self.args.noise > 0:
             aggregated_updates.add_(torch.normal(mean=0, std=self.args.noise*self.args.clip, size=(self.n_params,)).to(self.args.device))
@@ -82,6 +114,17 @@ class Aggregation():
             total_data += n_agent_data  
         return  sm_updates / total_data
     
+    def quantize_avg(self, agent_updates_dict):
+        """
+            Simulate the loss caused by the quantization
+        """
+        agent_updates_col_vector = [update.view(-1, 1) for update in agent_updates_dict.values()]
+        concat_col_vectors = torch.cat(agent_updates_col_vector, dim=1)
+        update = torch.mean(concat_col_vectors, dim=1)
+        field_q = 10**4
+        quantized_update = torch.round(update*field_q)/field_q
+        return quantized_update
+
     def agg_comed(self, agent_updates_dict):
         agent_updates_col_vector = [update.view(-1, 1) for update in agent_updates_dict.values()]
         concat_col_vectors = torch.cat(agent_updates_col_vector, dim=1)
@@ -93,92 +136,92 @@ class Aggregation():
         sm_signs = torch.sign(sum(agent_updates_sign))
         return torch.sign(sm_signs)
 
-    def agg_geomed(self, agent_updates_dict):
-        agent_updates_col_vector = [update.view(-1, 1) for update in agent_updates_dict.values()]
-        geo_median = compute_geometric_median(agent_updates_col_vector, weights=None).median
-        geo_median = geo_median.view(1, -1)
-
-        return torch.squeeze(geo_median)
-
-    def poison_agg_sign_flip(self, agent_updates_dict, num_corrupt=0):
-        """
-            sign flip attack
-            num_corrupt : number of sign-flipped users
-        """
-        sm_updates, total_data = 0, 0
-        for _id, update in agent_updates_dict.items():
-            n_agent_data = self.agent_data_sizes[_id]
-            if _id < num_corrupt:
-                sm_updates += -1 * n_agent_data * update
-                total_data += n_agent_data
-            else:
-                sm_updates += n_agent_data * update
-                total_data += n_agent_data
-        return sm_updates / total_data
-
-    def poison_agg_sign_flip_Def_Med(self, agent_updates_dict, num_corrupt=0):
-        """
-            sign flip attack, and defend by median
-            num_corrupt : number of sign-flipped users
-        """
+    def dummy(self, agent_updates_dict):
         agent_updates_col_vector = [update.view(-1, 1) for update in agent_updates_dict.values()]
         concat_col_vectors = torch.cat(agent_updates_col_vector, dim=1)
-        # flip sign
-        concat_col_vectors[:, :num_corrupt] += -1 * concat_col_vectors[:, :num_corrupt]
-        return torch.median(concat_col_vectors, dim=1).values
+        return concat_col_vectors
 
-    def poison_agg_sign_flip_Def_GeoMed(self, agent_updates_dict, num_corrupt=0):
-        """
-            sign flip attack, and defend by geometric median
-            num_corrupt : number of sign-flipped users
-        """
-        agent_updates_col_vector = [update.view(-1, 1) for update in agent_updates_dict.values()]
-        concat_col_vectors = torch.cat(agent_updates_col_vector, dim=1)
-        # flip sign
-        concat_col_vectors[:, :num_corrupt] += -1 * concat_col_vectors[:, :num_corrupt]
-
+    def geomed(self, concat_col_vectors):
         agent_updates_col_vector = [update for update in torch.transpose(concat_col_vectors, 0, 1)]
         geo_median = compute_geometric_median(agent_updates_col_vector, weights=None).median
         geo_median = geo_median.view(1, -1)
         return torch.squeeze(geo_median)
 
-    def poison_agg_additive_noise(self, agent_updates_dict, num_corrupt=0):
+    def poison_sign_flip(self, agent_updates_dict, num_corrupt=0):
+        """
+            sign flip attack
+            num_corrupt : number of sign-flipped users
+        """
+        agent_updates_col_vector = [update.view(-1, 1) for update in agent_updates_dict.values()]
+        concat_col_vectors = torch.cat(agent_updates_col_vector, dim=1)
+        concat_col_vectors[:, :num_corrupt] += - concat_col_vectors[:, :num_corrupt]  # flip sign
+        return concat_col_vectors
+
+    def poison_additive_noise(self, agent_updates_dict, num_corrupt=0):
         """
             Additive Noise Attack
             num_corrupt : number of malicious users
         """
         agent_updates_col_vector = [update.view(-1, 1) for update in agent_updates_dict.values()]
         concat_col_vectors = torch.cat(agent_updates_col_vector, dim=1)
-
         random_noise_vectors = torch.randn(concat_col_vectors.shape[0], num_corrupt).to(self.args.device)
         c = 1 # std
         concat_col_vectors[:, :num_corrupt] += c * random_noise_vectors  # additive
         # concat_col_vectors[:, :num_corrupt] = c * random_noise_vectors # overwrite
+        return concat_col_vectors
 
-        return torch.mean(concat_col_vectors, dim=1)
-
-    def poison_agg_additive_noise_Def_Med(self, agent_updates_dict, num_corrupt=0):
+    def poison_scale(self, agent_updates_dict, num_corrupt=0):
         """
-            Additive Noise Attack, and defend by median
-            num_corrupt : number of malicious users
+            Scaling Attack
         """
         agent_updates_col_vector = [update.view(-1, 1) for update in agent_updates_dict.values()]
         concat_col_vectors = torch.cat(agent_updates_col_vector, dim=1)
+        c = 10 # std
+        concat_col_vectors[:, :num_corrupt] += c * concat_col_vectors[:, :num_corrupt]  # amplify
+        return concat_col_vectors
 
-        random_noise_vectors = torch.randn(concat_col_vectors.shape[0], num_corrupt).to(self.args.device)
-        c = 1 # std
-        concat_col_vectors[:, :num_corrupt] += c * random_noise_vectors  # additive
-        # concat_col_vectors[:, :num_corrupt] = c * random_noise_vectors # overwrite
-
-        return torch.median(concat_col_vectors, dim=1).values
-
-    def quantization(self, gradient, q):
+    def poison_minmax(self, agent_updates_dict, num_corrupt=0):
         """
-        Simulate the loss caused by the quantization
-        :param gradient:
-        :param q:
-        :return:
+            min max attack, num_corrupt should be 1 in this case, just copy malicious behavior if num_corrupt is greater than one
+            v_avg + \gamma*v_p -v_i
         """
+        agent_updates_col_vector = [update.view(-1, 1) for update in agent_updates_dict.values()]
+        concat_col_vectors = torch.cat(agent_updates_col_vector, dim=1)
+        datadim, N = concat_col_vectors.shape
+        # print(datadim, N)
+
+        benign_vector = torch.mean(concat_col_vectors[:, num_corrupt:], dim=1)
+        v2 = - benign_vector/torch.norm(benign_vector) # perturbation vector: Inverse unit vector
+        # v2 = - torch.std(concat_col_vectors[:, num_corrupt:], dim=1, keepdim=False) # perturbation vector: Inverse standard deviation
+        dists = []
+        for i in range(num_corrupt, N): # go over benign vectors
+            for j in range(num_corrupt, N):
+                dist = torch.norm(concat_col_vectors[:, i] - concat_col_vectors[:, j])
+                dists.append(dist)
+        dist = torch.max(torch.tensor(dists))
+        v1 = benign_vector - concat_col_vectors[:, random.randint(num_corrupt, N-1)] # any benign vector
+        v1, v2 = v1.unsqueeze(1), v2.unsqueeze(1) # convert to (d,1) column vector
+        a = torch.matmul(v2.T, v2)
+        b = torch.matmul(v2.T, v1) + torch.matmul(v1.T, v2)
+        c = - dist**2 + torch.matmul(v1.T, v1)
+        delta = b**2 - 4*a*c
+        # x1 = (-b - torch.sqrt(delta))/(2*a)
+        x2 = (-b + torch.sqrt(delta))/(2*a)
+        m_vector = benign_vector + torch.squeeze(torch.sqrt(x2) * v2)
+
+        for i in range(num_corrupt):
+            concat_col_vectors[:, i] = m_vector
+        return concat_col_vectors
+
+    def poison_minsum(self, agent_updates_dict, num_corrupt=0):
+        """
+            min sum attack, num_corrupt should be 1 in this case, just copy malicious behavior if num_corrupt is greater than one
+        """
+        agent_updates_col_vector = [update.view(-1, 1) for update in agent_updates_dict.values()]
+        concat_col_vectors = torch.cat(agent_updates_col_vector, dim=1)
+        c = 10 # std
+        concat_col_vectors[:, :num_corrupt] += c * concat_col_vectors[:, :num_corrupt]  # amplify
+        return concat_col_vectors
 
     def clip_updates(self, agent_updates_dict):
         for update in agent_updates_dict.values():

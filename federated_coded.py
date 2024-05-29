@@ -14,6 +14,7 @@ import torch.nn as nn
 from time import ctime
 from torch.nn.utils import parameters_to_vector, vector_to_parameters
 from utils import H5Dataset
+from LCC_module import initial, secure_aggregation
 
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True
@@ -24,12 +25,17 @@ if __name__ == '__main__':
     utils.print_exp_details(args)
 
     # data recorders
-    file_name = f"""time:{ctime()}-clip_val:{args.clip}-noise_std:{args.noise}"""\
-            + f"""-aggr:{args.aggr}-defence:{args.defence}-s_lr:{args.server_lr}-num_cor:{args.num_corrupt}"""\
+    file_name = f"""codedFL---time:{ctime()}-clip_val:{args.clip}-noise_std:{args.noise}"""\
+            + f"""-aggr:{args.aggr}-s_lr:{args.server_lr}-num_cor:{args.num_corrupt}"""\
             + f"""thrs_robustLR:{args.robustLR_threshold}"""\
             + f"""-num_corrupt:{args.num_corrupt}-pttrn:{args.pattern_type}"""
     writer = SummaryWriter('logs/' + file_name)
     cum_poison_acc_mean = 0
+
+    # LCC initials
+    p, q, r, g = initial(2 * 10 ** 8) # bigger than 2(pos/neg) 10**4(quantization) 10**2(users)
+    T, N, K = args.num_corrupt + 1, args.num_agents, 7
+    # assert 2*(T+K) <= N
 
     # load dataset and user groups (i.e., user to data mapping)
     train_dataset, val_dataset = utils.get_datasets(args.data)
@@ -71,8 +77,11 @@ if __name__ == '__main__':
             # make sure every agent gets same copy of the global model in a round (i.e., they don't affect each other's training)
             vector_to_parameters(copy.deepcopy(rnd_global_params), global_model.parameters())
         # aggregate params obtained by agents and update the global params
-        aggregator.aggregate_updates(global_model, agent_updates_dict, rnd)
-        
+        # aggregator.aggregate_updates(global_model, agent_updates_dict, rnd)
+        if rnd >= 5 and rnd <=15:
+            secure_aggregation(global_model, agent_updates_dict, [p, q, r, g, T, N, K], args)
+        else:
+            aggregator.aggregate_updates(global_model, agent_updates_dict, rnd)
         
         # inference in every args.snap rounds
         if rnd % args.snap == 0:
