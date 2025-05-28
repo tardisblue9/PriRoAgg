@@ -1,8 +1,10 @@
-# RobustSecureFL
+# PriRoAgg -- IEEE-TIFS
 
-Code for Robust and secure federated learning. 
+## This is the repository for paper ---- PriRoAgg: Achieving Robust Model Aggregation with Minimum Privacy Leakage for Federated Learning
 
-You can refer to the runner.sh file for how to run the code. Create a folder 'logs' before running. 
+PriRoAgg is a framework for robust and secure federated learning. 
 
-Different changes are mainly done in the aggregation.py file. So, try different '--aggr' for experiements. 
+Please refer to `runner.sh` for demos of running the code. Create a folder `'logs'` before running. 
+
+Changes are mainly done in `aggregation.py`.
 
